@@ -20,8 +20,15 @@ void* threadCall(void* arg);
 pthread_mutex_t mutex_word = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_buffer = PTHREAD_MUTEX_INITIALIZER;
 
+/*===============================================================================================
+<purpose> gets the textfile names from the directory
+<input> a list of all the textfile names, directory, number of files
+<output> 
+===============================================================================================*/
 void getFiles(char*** directory, char* location, int* numFiles) {
 	DIR* dir = opendir(location);
+	printf("MAIN: Opened \"%s\" directory\n", location);
+	fflush(NULL);
 	struct dirent* file;
 
 	if (dir == NULL) {
@@ -37,11 +44,6 @@ void getFiles(char*** directory, char* location, int* numFiles) {
 
 	int i = 0;
 	while((file = readdir(dir)) != NULL) {
-		#if DEBUG_MODE
-			printf( "found %s", file->d_name );
-			fflush(NULL);
-		#endif
-
 		struct stat buf;
 
 		int rc = lstat( file -> d_name, &buf );
@@ -49,12 +51,6 @@ void getFiles(char*** directory, char* location, int* numFiles) {
 		if(rc == -1) {
 			perror("lstat() failed");
 		}
-
-		#if DEBUG_MODE
-			printf( " (%d bytes)", (int)buf.st_size );
-			fflush(NULL);
-		#endif
-		
 
 		if (S_ISREG(buf.st_mode)) {
 			(*numFiles)++;
@@ -66,9 +62,10 @@ void getFiles(char*** directory, char* location, int* numFiles) {
 			else {
 				*directory = realloc(*directory, (i+1)*sizeof(char*));
 			}
-			(*directory)[i] = (char*)calloc(80, sizeof(char));
 
-			strcpy((*directory)[i], file->d_name);
+			(*directory)[i] = (char*)calloc(80 + 1, sizeof(char));
+			strncpy((*directory)[i], file->d_name, 80);
+
 			#if DEBUG_MODE
 				printf( " -- regular file \n" );
 				fflush(NULL);	
@@ -82,22 +79,34 @@ void getFiles(char*** directory, char* location, int* numFiles) {
 			#endif
 		}
 	}
+	printf("MAIN: Closed \"%s\" directory\n", location);
+	fflush(NULL);
 	closedir(dir);
 }
 
+/*================================================================================================
+<purpose> clears the buffer
+<input>
+<output> 
+===============================================================================================*/
 void clearWordsCritical(void) {
-	printf("THREAD %u: I'm going to clear words\n", (unsigned int)pthread_self());
+	printf("MAIN: Buffer is full; writing %d words to output file\n", maxwords);
+	fflush(NULL);
 	int i = 0;
 	while (i < maxwords) {
 		fprintf(f, "%s\n", words[i]);
 		words[i][0] = '\0';
 		i += 1;
 	}
-	return;
 }
 
+/*================================================================================================
+<purpose> function that writes to buffer. also checks
+if the buffer needs to be added to the output file
+<input> the word to be added, the index the word goes to
+<output> 
+===============================================================================================*/
 void writeToWordsCritical(char* word, int i) {
-	printf("THREAD %u: I'm going to write '%s' to words[%d]\n", (unsigned int)pthread_self(), word, i);
 	fflush(NULL);
 
 	if (i == maxwords) { //if you need to write out to the file
@@ -109,25 +118,35 @@ void writeToWordsCritical(char* word, int i) {
 	}
 	//add word to words array
 	pthread_mutex_lock(&mutex_buffer);
-	strcpy(words[i], word);
+
+	strncpy(words[i], word, 80);
+
+	printf("TID %u: Stored \"%s\" in shared buffer at index [%d]\n", (unsigned int)pthread_self(), word, i);
+	fflush(NULL);
+	
 	pthread_mutex_unlock(&mutex_buffer); 
-	return;
 }
 
+/*==============================================================================================
+<purpose> begins mutex handling. sends each word to go
+into the buffer, and locks/unlocks mutex
+<input> each word to be added to buffer
+<output> 
+===============================================================================================*/
 void mutexHandling(char* word) {
-	printf("word: %s\n", word);
 	pthread_mutex_lock(&mutex_word);
 	writeToWordsCritical(word, current_index);
 	current_index++;
 	pthread_mutex_unlock(&mutex_word);
-	return;
 }
 
+/*==============================================================================================
+<purpose> parses through all the words in a textfile, 
+sends each word to the next function
+<input> the complete string from each file
+<output> 
+==============================================================================================*/
 void handleWords(char* buff) {
-	printf("buff: %s\n", buff);
-	printf("buff length: %lu\n", strlen(buff));
-	fflush(NULL);
-
 	char* singleWord = (char*)calloc(80, sizeof(char));
 	int i = 0;
 	int j = 0;
@@ -165,12 +184,19 @@ void handleWords(char* buff) {
 	}
 	free(singleWord);
 	singleWord = NULL;
-	return;
 }
 
+/*===============================================================================================
+<purpose> reads in the words from each textfile and 
+send it to a new function
+<input> the name for a single textfle
+<output> 
+===============================================================================================*/
 void readFile(char* file) {
 	char* buffer = NULL;
 	FILE *fp = fopen(file, "r");
+	printf("TID %u: Opened \"%s\"\n", (unsigned int)pthread_self(), file);
+	fflush(NULL);
 	if (fp != NULL) {
 	    /* Go to the end of the file. */
 	    if (fseek(fp, 0L, SEEK_END) == 0) {
@@ -193,20 +219,25 @@ void readFile(char* file) {
 	            perror("fread() failed");
 	        } 
 	        else {
-	            buffer[++newLen] = '\0'; /* Just to be safe. */
+	            buffer[newLen] = '\0'; /* Just to be safe. */
 	            handleWords(buffer); //BIG FUNCTION CALL
 	        }
 	    }
 	    fclose(fp);
+	    printf("TID %u: Closed \"%s\"; and exiting\n", (unsigned int)pthread_self(), file);
+	    fflush(NULL);
 	}
 	free(buffer);
 }
 
-//for each thread call, we need just the file name
+/*===============================================================================================
+<purpose> each thread calls a function to read a file
+<input> the void* pointer which contains a single textfile name
+<output> 
+===============================================================================================*/
 void* threadCall(void* arg) {
 	char* file = (char*)arg;
 
-	printf("THREAD %u: I'm going to send each file: %s to function readFile()\n", (unsigned int)pthread_self(), file);
 	fflush(NULL);
 
 	readFile(file);
@@ -214,19 +245,26 @@ void* threadCall(void* arg) {
 	//return the TID value
 	unsigned int* x = malloc(sizeof(unsigned int));
 	*x = pthread_self();
-	printf("THREAD %u: Exiting...\n", (unsigned int)pthread_self());
 	free(arg);
 	pthread_exit(x);
 }
 
+
+/*===============================================================================================
+<purpose> create threads and begin program purpose
+<input> the array of text files, number of text files
+<output> 
+===============================================================================================*/
 void bufferRun(char** directory, unsigned int numFiles) {
 	pthread_t tid[numFiles];
 	int i, rc;
 
 	for (i = 0; i < numFiles; i++) {
 		rc = pthread_create( &tid[i], NULL, threadCall, (void*)(directory[i]));
+		printf("MAIN: Created child thread for \"%s\"\n", directory[i]);
+		fflush(NULL);
 		if (rc != 0) {
-			fprintf(stderr, "MAIN: Could not create thread\n");
+			fprintf(stderr, "Could not create thread\n");
 			fflush(NULL);
 		}
 	}
@@ -236,11 +274,11 @@ void bufferRun(char** directory, unsigned int numFiles) {
 		rc = pthread_join(tid[i], (void**)&x);
 
 		if (rc != 0) {
-			fprintf(stderr, "MAIN: Could not join thread\n");
+			fprintf(stderr, "Could not join thread\n");
 			fflush(NULL);
 		}
 
-		printf("MAIN: Joined child thread %u, which returned %u\n", (unsigned int)tid[i], *x);
+		printf("MAIN: Joined child thread %u\n", (unsigned int)tid[i]);
 		fflush(NULL);
 		free(x);
 	}
@@ -251,52 +289,60 @@ void bufferRun(char** directory, unsigned int numFiles) {
 		fprintf(f, "%s\n", words[i]);
 		i += 1;
 	}
-	//do any final adding to file here
-	printf("MAIN: All threads terminated successfully.\n");
+
+	printf("MAIN: All threads are done; writing %d words to output file\n", current_index);
 	fflush(NULL);
 }
 
 int main(int argc, char* argv[]) {
 	int i;
 
-	//TO DO: have check for inputs here
-	// maxwords = atoi(argv[2]);
-	// words = (char**)calloc(maxwords, sizeof(char*));
-	// for(i = 0; i < maxwords; i++ ) {
-	// 	words[i] = (char*)calloc(80, sizeof(char));
-	// }
-
-	maxwords = 5;
-	words = (char**)calloc(maxwords, sizeof(char*));
-	for(i = 0; i < maxwords; i++ ) {
-		words[i] = (char*)calloc(80, sizeof(char));
+	//checking input args
+	if (argc != 4) {
+		fprintf(stderr, "ERROR: Invalid arguments");
+		fprintf(stderr, "USAGE: ./a.out <input-directory> <buffer-size> <output-file>");
+		return EXIT_FAILURE;
 	}
 
+	//dynamically allocate words array
+	maxwords = atoi(argv[2]);
+	words = (char**)calloc(maxwords, sizeof(char*));
+	for(i = 0; i < maxwords; i++ ) {
+		words[i] = (char*)calloc(80+1, sizeof(char));
+	}
+	printf("MAIN: Dynamically allocated memory to store %d words\n", maxwords);
+	fflush(NULL);
+
+	//open file
 	f = fopen(argv[3], "w");
 	if (f == NULL) {
 	    printf("Error opening file!\n");
 	    exit(1);
 	}
+	printf("MAIN: Created \"%s\" output file\n", argv[3]);
+	fflush(NULL);
 
-	#if DEBUG_MODE
-		printf( "argv[0] is %s\n", argv[0]);
-		printf( "argv[1] is %s\n", argv[1]);
-		printf( "argv[2] is %s\n", argv[2]);
-		printf( "argv[3] is %s\n", argv[3]);
-	#endif
-
+	//getting file and directory info
 	int numFiles = 0;
 	char** directory;
-	//TO DO: DONT FORGET TO FREE THIS ^^^^
 	getFiles(&directory, argv[1], &numFiles);
+
+	//run actual reading and point of HW
+	bufferRun(directory, numFiles);
+
+	//free remaining words
+	i = 0;
+	while (i < maxwords) {
+		free(words[i]);
+		i += 1;
+	}
 	i = 0;
 	while (i < numFiles) {
-		printf("files: %s\n", directory[i]);
-		fflush(NULL);
-		i++;
+		free(directory[i]);
+		i += 1;
 	}
-
-	bufferRun(directory, numFiles);
+	free(words);
+	free(directory);
 
 	return EXIT_SUCCESS;
 }

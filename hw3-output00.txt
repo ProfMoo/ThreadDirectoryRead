@@ -1,3 +1,6 @@
+hello
+there
+friendo
 this
 is
 going
@@ -8,9 +11,6 @@ longer
 than
 the
 others
-hello
-there
-friendo
 how
 is
 it
