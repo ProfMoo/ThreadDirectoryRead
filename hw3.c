@@ -14,9 +14,11 @@
 //gcc -Wall -Werror hw3.c -pthread
 //./a.out testfiles00 5 hw3-output00.txt
 
-//make a STRUCT here???
-
+//function declaration
 void* threadCall(void* arg);
+
+pthread_mutex_t mutex_word = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_buffer = PTHREAD_MUTEX_INITIALIZER;
 
 void getFiles(char*** directory, char* location, int* numFiles) {
 	DIR* dir = opendir(location);
@@ -83,6 +85,44 @@ void getFiles(char*** directory, char* location, int* numFiles) {
 	closedir(dir);
 }
 
+void clearWordsCritical(void) {
+	printf("THREAD %u: I'm going to clear words\n", (unsigned int)pthread_self());
+	int i = 0;
+	while (i < maxwords) {
+		fprintf(f, "%s\n", words[i]);
+		words[i][0] = '\0';
+		i += 1;
+	}
+	return;
+}
+
+void writeToWordsCritical(char* word, int i) {
+	printf("THREAD %u: I'm going to write '%s' to words[%d]\n", (unsigned int)pthread_self(), word, i);
+	fflush(NULL);
+
+	if (i == maxwords) { //if you need to write out to the file
+		pthread_mutex_lock(&mutex_buffer);
+		clearWordsCritical();
+		i = 0;
+		current_index = 0;
+		pthread_mutex_unlock(&mutex_buffer);
+	}
+	//add word to words array
+	pthread_mutex_lock(&mutex_buffer);
+	strcpy(words[i], word);
+	pthread_mutex_unlock(&mutex_buffer); 
+	return;
+}
+
+void mutexHandling(char* word) {
+	printf("word: %s\n", word);
+	pthread_mutex_lock(&mutex_word);
+	writeToWordsCritical(word, current_index);
+	current_index++;
+	pthread_mutex_unlock(&mutex_word);
+	return;
+}
+
 void handleWords(char* buff) {
 	printf("buff: %s\n", buff);
 	printf("buff length: %lu\n", strlen(buff));
@@ -115,7 +155,7 @@ void handleWords(char* buff) {
 		}
 		fflush(NULL);
 		if (j > 1) {
-			printf("word: %s\n", singleWord);
+			mutexHandling(singleWord); //BIG FUNCTION CALL
 		}
 		else {
 			wordCounter -= 1;
@@ -125,13 +165,10 @@ void handleWords(char* buff) {
 	}
 	free(singleWord);
 	singleWord = NULL;
+	return;
 }
 
 void readFile(char* file) {
-
-	printf("INSIDE READFILE()\n");
-	fflush(NULL);
-
 	char* buffer = NULL;
 	FILE *fp = fopen(file, "r");
 	if (fp != NULL) {
@@ -157,18 +194,13 @@ void readFile(char* file) {
 	        } 
 	        else {
 	            buffer[++newLen] = '\0'; /* Just to be safe. */
-	            handleWords(buffer);
+	            handleWords(buffer); //BIG FUNCTION CALL
 	        }
 	    }
 	    fclose(fp);
 	}
 	free(buffer);
 }
-
-
-// void critical_section() {
-
-// }
 
 //for each thread call, we need just the file name
 void* threadCall(void* arg) {
@@ -213,6 +245,13 @@ void bufferRun(char** directory, unsigned int numFiles) {
 		free(x);
 	}
 
+	//catch any leftover words in the array that need to go to the file
+	i = 0;
+	while (i < current_index) {
+		fprintf(f, "%s\n", words[i]);
+		i += 1;
+	}
+	//do any final adding to file here
 	printf("MAIN: All threads terminated successfully.\n");
 	fflush(NULL);
 }
@@ -221,10 +260,22 @@ int main(int argc, char* argv[]) {
 	int i;
 
 	//TO DO: have check for inputs here
-	maxwords = atoi(argv[2]);
+	// maxwords = atoi(argv[2]);
+	// words = (char**)calloc(maxwords, sizeof(char*));
+	// for(i = 0; i < maxwords; i++ ) {
+	// 	words[i] = (char*)calloc(80, sizeof(char));
+	// }
+
+	maxwords = 5;
 	words = (char**)calloc(maxwords, sizeof(char*));
 	for(i = 0; i < maxwords; i++ ) {
 		words[i] = (char*)calloc(80, sizeof(char));
+	}
+
+	f = fopen(argv[3], "w");
+	if (f == NULL) {
+	    printf("Error opening file!\n");
+	    exit(1);
 	}
 
 	#if DEBUG_MODE
