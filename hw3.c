@@ -85,7 +85,46 @@ void getFiles(char*** directory, char* location, int* numFiles) {
 
 void handleWords(char* buff) {
 	printf("buff: %s\n", buff);
+	printf("buff length: %lu\n", strlen(buff));
 	fflush(NULL);
+
+	char* singleWord = (char*)calloc(80, sizeof(char));
+	int i = 0;
+	int j = 0;
+	int wordCounter = -1;
+	for(i = 0; i < strlen(buff); i++) {
+		if (isalpha(buff[i]) || isdigit(buff[i])) { //begin word
+			wordCounter += 1;
+			j = 0;
+			singleWord[0] = buff[i];
+			while(1) { //reading a word
+				j += 1;
+				if(isalpha(buff[i+j])) {
+					singleWord[j] = buff[i+j]; 
+				}
+				else if(isdigit(buff[i+j])) {
+					singleWord[j] = buff[i+j]; 
+				}
+				else {
+					break;
+				}
+			}
+		}
+		else {
+			continue;
+		}
+		fflush(NULL);
+		if (j > 1) {
+			printf("word: %s\n", singleWord);
+		}
+		else {
+			wordCounter -= 1;
+		}
+		memset(singleWord, 0, strlen(singleWord));
+		i += j;
+	}
+	free(singleWord);
+	singleWord = NULL;
 }
 
 void readFile(char* file) {
@@ -133,8 +172,7 @@ void readFile(char* file) {
 
 //for each thread call, we need just the file name
 void* threadCall(void* arg) {
-	char* file = *(char**)arg;
-	//free(arg);
+	char* file = (char*)arg;
 
 	printf("THREAD %u: I'm going to send each file: %s to function readFile()\n", (unsigned int)pthread_self(), file);
 	fflush(NULL);
@@ -145,6 +183,7 @@ void* threadCall(void* arg) {
 	unsigned int* x = malloc(sizeof(unsigned int));
 	*x = pthread_self();
 	printf("THREAD %u: Exiting...\n", (unsigned int)pthread_self());
+	free(arg);
 	pthread_exit(x);
 }
 
@@ -153,7 +192,7 @@ void bufferRun(char** directory, unsigned int numFiles) {
 	int i, rc;
 
 	for (i = 0; i < numFiles; i++) {
-		rc = pthread_create( &tid[i], NULL, threadCall, (void*)&(directory[i]));
+		rc = pthread_create( &tid[i], NULL, threadCall, (void*)(directory[i]));
 		if (rc != 0) {
 			fprintf(stderr, "MAIN: Could not create thread\n");
 			fflush(NULL);
