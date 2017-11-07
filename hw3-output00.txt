@@ -1,6 +1,3 @@
-hello
-there
-friendo
 this
 is
 going
@@ -15,3 +12,6 @@ how
 is
 it
 going
+hello
+there
+friendo

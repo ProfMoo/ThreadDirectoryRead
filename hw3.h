@@ -10,7 +10,5 @@ char ** words = NULL;
 /* global/shared integer specifying the size */
 /*  of the words array (from argv[2])        */
 int maxwords;
-int current_index;
-FILE* f;
 
 #endif

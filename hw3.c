@@ -19,6 +19,10 @@ void* threadCall(void* arg);
 
 pthread_mutex_t mutex_word = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_buffer = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_i = PTHREAD_MUTEX_INITIALIZER;
+
+int current_index;
+FILE* f;
 
 /*===============================================================================================
 <purpose> gets the textfile names from the directory
@@ -196,6 +200,7 @@ void readFile(char* file) {
 	char* buffer = NULL;
 	FILE *fp = fopen(file, "r");
 	printf("TID %u: Opened \"%s\"\n", (unsigned int)pthread_self(), file);
+	pthread_mutex_unlock(&mutex_i);
 	fflush(NULL);
 	if (fp != NULL) {
 	    /* Go to the end of the file. */
@@ -207,7 +212,7 @@ void readFile(char* file) {
 	        }
 
 	        /* Allocate our buffer to that size. */
-	        buffer = (char*)calloc(bufsize, sizeof(char));
+	        buffer = (char*)calloc(bufsize+1, sizeof(char));
 
 	        /* Go back to the start of the file. */
 	        if (fseek(fp, 0L, SEEK_SET) != 0) { 
@@ -238,17 +243,13 @@ void readFile(char* file) {
 void* threadCall(void* arg) {
 	char* file = (char*)arg;
 
-	fflush(NULL);
-
 	readFile(file);
 
 	//return the TID value
 	unsigned int* x = malloc(sizeof(unsigned int));
 	*x = pthread_self();
-	free(arg);
 	pthread_exit(x);
 }
-
 
 /*===============================================================================================
 <purpose> create threads and begin program purpose
@@ -259,7 +260,9 @@ void bufferRun(char** directory, unsigned int numFiles) {
 	pthread_t tid[numFiles];
 	int i, rc;
 
-	for (i = 0; i < numFiles; i++) {
+	i = 0;
+	while (i < numFiles) {
+		pthread_mutex_lock(&mutex_i);
 		rc = pthread_create( &tid[i], NULL, threadCall, (void*)(directory[i]));
 		printf("MAIN: Created child thread for \"%s\"\n", directory[i]);
 		fflush(NULL);
@@ -267,6 +270,7 @@ void bufferRun(char** directory, unsigned int numFiles) {
 			fprintf(stderr, "Could not create thread\n");
 			fflush(NULL);
 		}
+		i++;
 	}
 
 	for (i = 0; i < numFiles; i++) {
@@ -278,7 +282,7 @@ void bufferRun(char** directory, unsigned int numFiles) {
 			fflush(NULL);
 		}
 
-		printf("MAIN: Joined child thread %u\n", (unsigned int)tid[i]);
+		printf("MAIN: Joined child thread: %u\n", (unsigned int)tid[i]);
 		fflush(NULL);
 		free(x);
 	}
@@ -290,6 +294,10 @@ void bufferRun(char** directory, unsigned int numFiles) {
 		i += 1;
 	}
 
+	if (current_index == maxwords) {
+		printf("MAIN: Buffer is full; writing %d words to output file\n", maxwords);
+	}
+	current_index = current_index%maxwords;
 	printf("MAIN: All threads are done; writing %d words to output file\n", current_index);
 	fflush(NULL);
 }
@@ -299,8 +307,8 @@ int main(int argc, char* argv[]) {
 
 	//checking input args
 	if (argc != 4) {
-		fprintf(stderr, "ERROR: Invalid arguments");
-		fprintf(stderr, "USAGE: ./a.out <input-directory> <buffer-size> <output-file>");
+		fprintf(stderr, "ERROR: Invalid arguments\n");
+		fprintf(stderr, "USAGE: ./a.out <input-directory> <buffer-size> <output-file>\n");
 		return EXIT_FAILURE;
 	}
 
@@ -308,7 +316,7 @@ int main(int argc, char* argv[]) {
 	maxwords = atoi(argv[2]);
 	words = (char**)calloc(maxwords, sizeof(char*));
 	for(i = 0; i < maxwords; i++ ) {
-		words[i] = (char*)calloc(80+1, sizeof(char));
+		words[i] = (char*)calloc(80, sizeof(char));
 	}
 	printf("MAIN: Dynamically allocated memory to store %d words\n", maxwords);
 	fflush(NULL);
@@ -343,6 +351,7 @@ int main(int argc, char* argv[]) {
 	}
 	free(words);
 	free(directory);
+	fclose(f);
 
 	return EXIT_SUCCESS;
 }
